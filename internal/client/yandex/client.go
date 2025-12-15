@@ -95,6 +95,8 @@ func (c *APIClient) SearchTracks(ctx context.Context, query string, limit, offse
 	}
 	c.attachHeaders(req)
 
+	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err

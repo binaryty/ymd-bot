@@ -103,7 +103,7 @@ func (b *Bot) handleInlineQuery(ctx context.Context, q *tgbotapi.InlineQuery) {
 
 		audio := tgbotapi.NewInlineQueryResultAudio(meta.ID, url, meta.Title)
 		audio.Performer = meta.ArtistsString()
-		audio.Caption = fmt.Sprintf("%s — %s", meta.Title, meta.ArtistsString())
+		//	audio.Caption = fmt.Sprintf("%s — %s", meta.Title, meta.ArtistsString())
 		results = append(results, audio)
 	}
 
