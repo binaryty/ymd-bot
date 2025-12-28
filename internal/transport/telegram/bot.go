@@ -156,7 +156,7 @@ func (b *Bot) handleCallback(ctx context.Context, cb *tgbotapi.CallbackQuery) {
 	audio.Duration = meta.DurationSeconds
 	audio.Performer = meta.ArtistsString()
 	audio.Title = meta.Title
-	audio.Caption = fmt.Sprintf("%s — %s", meta.Title, meta.ArtistsString())
+	//audio.Caption = fmt.Sprintf("%s — %s", meta.Title, meta.ArtistsString())
 
 	if _, err := b.api.Send(audio); err != nil {
 		b.logger.Warn("send audio failed", zap.String("trackID", trackID), zap.Error(err))
