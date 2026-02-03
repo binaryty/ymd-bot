@@ -55,21 +55,20 @@ func NewClient(httpClient HTTPClient, token string, logger *zap.Logger) *APIClie
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
-
 	return &APIClient{
 		httpClient: httpClient,
 		token:      token,
-		logger:     logger,
+		logger:     logger.With(zap.String("component", "yandex.client")),
 	}
 }
 
 // SearchTracks queries Yandex Music search API for tracks.
 func (c *APIClient) SearchTracks(ctx context.Context, query string, limit, offset int) ([]Track, error) {
 	if strings.TrimSpace(query) == "" {
+		c.logger.Debug("search rejected: empty query")
 		return nil, fmt.Errorf("query is empty")
 	}
 	if limit <= 0 {
@@ -80,7 +79,6 @@ func (c *APIClient) SearchTracks(ctx context.Context, query string, limit, offse
 	}
 
 	page := offset / limit
-
 	u, _ := url.Parse(apiBase + "/search")
 	q := u.Query()
 	q.Set("text", query)
@@ -91,25 +89,28 @@ func (c *APIClient) SearchTracks(ctx context.Context, query string, limit, offse
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
+		c.logger.Error("search request build failed", zap.String("query", query), zap.Error(err))
 		return nil, err
 	}
 	c.attachHeaders(req)
 
-	
-
+	c.logger.Debug("search request", zap.String("query", query), zap.Int("page", page))
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logger.Warn("search request failed", zap.String("query", query), zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		c.logger.Warn("search failed", zap.String("query", query), zap.Int("status", resp.StatusCode), zap.String("body_preview", string(body[:min(200, len(body))])))
 		return nil, fmt.Errorf("search failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
 	var payload searchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		c.logger.Warn("search decode failed", zap.String("query", query), zap.Error(err))
 		return nil, fmt.Errorf("decode search response: %w", err)
 	}
 
@@ -120,13 +121,14 @@ func (c *APIClient) SearchTracks(ctx context.Context, query string, limit, offse
 		}
 		tracks = append(tracks, mapTrack(t))
 	}
-
+	c.logger.Debug("search response", zap.String("query", query), zap.Int("count", len(tracks)))
 	return tracks, nil
 }
 
 // GetTrack fetches detailed track metadata by id.
 func (c *APIClient) GetTrack(ctx context.Context, id string) (Track, error) {
 	if id == "" {
+		c.logger.Debug("get track rejected: empty id")
 		return Track{}, fmt.Errorf("track id is empty")
 	}
 
@@ -138,36 +140,39 @@ func (c *APIClient) GetTrack(ctx context.Context, id string) (Track, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logger.Warn("get track request failed", zap.String("track_id", id), zap.Error(err))
 		return Track{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		c.logger.Warn("get track failed", zap.String("track_id", id), zap.Int("status", resp.StatusCode))
 		return Track{}, fmt.Errorf("get track failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
 	var payload trackResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		c.logger.Warn("get track decode failed", zap.String("track_id", id), zap.Error(err))
 		return Track{}, fmt.Errorf("decode track response: %w", err)
 	}
 
 	if len(payload.Result) == 0 {
+		c.logger.Debug("track not found", zap.String("track_id", id))
 		return Track{}, fmt.Errorf("track not found")
 	}
 
-	return mapTrack(payload.Result[0]), nil
+	t := mapTrack(payload.Result[0])
+	c.logger.Debug("get track ok", zap.String("track_id", id), zap.String("title", t.Title))
+	return t, nil
 }
 
 // GetDownloadURL resolves a track id to a downloadable URL.
-// Official clients perform an extra redirect/URL signing step; for the purposes
-// of this demo we reuse the same pattern used by community clients.
 func (c *APIClient) GetDownloadURL(ctx context.Context, id string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("track id is empty")
 	}
 
-	// Request all available formats and pick the first (usually mp3).
 	u := fmt.Sprintf("%s/tracks/%s/download-info", apiBase, id)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -175,23 +180,28 @@ func (c *APIClient) GetDownloadURL(ctx context.Context, id string) (string, erro
 	}
 	c.attachHeaders(req)
 
+	c.logger.Debug("download-info request", zap.String("track_id", id))
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logger.Warn("download-info request failed", zap.String("track_id", id), zap.Error(err))
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		c.logger.Warn("download-info failed", zap.String("track_id", id), zap.Int("status", resp.StatusCode))
 		return "", fmt.Errorf("download-info failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
 	var payload downloadInfoResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		c.logger.Warn("download-info decode failed", zap.String("track_id", id), zap.Error(err))
 		return "", fmt.Errorf("decode download-info: %w", err)
 	}
 
 	if len(payload.Result) == 0 {
+		c.logger.Debug("download url not found", zap.String("track_id", id))
 		return "", fmt.Errorf("download url not found")
 	}
 
@@ -200,11 +210,12 @@ func (c *APIClient) GetDownloadURL(ctx context.Context, id string) (string, erro
 		return "", fmt.Errorf("download url not found")
 	}
 
-	// Resolve final downloadable URL (handles downloadInfoUrl indirection).
 	finalURL, err := c.resolveDownloadInfoURL(ctx, info.URL, id)
 	if err != nil {
+		c.logger.Warn("resolve download url failed", zap.String("track_id", id), zap.Error(err))
 		return "", err
 	}
+	c.logger.Debug("download url resolved", zap.String("track_id", id))
 	return finalURL, nil
 }
 
@@ -220,30 +231,40 @@ func (c *APIClient) DownloadToFile(ctx context.Context, downloadURL, destPath st
 	}
 	c.attachHeaders(req)
 
+	c.logger.Debug("download to file started", zap.String("dest", filepath.Base(destPath)))
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logger.Warn("download request failed", zap.String("dest", filepath.Base(destPath)), zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		c.logger.Warn("download failed", zap.String("dest", filepath.Base(destPath)), zap.Int("status", resp.StatusCode))
 		return fmt.Errorf("download failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
 	tmpDir := filepath.Dir(destPath)
 	if err := ensureDir(tmpDir); err != nil {
+		c.logger.Error("ensure dir failed", zap.String("dir", tmpDir), zap.Error(err))
 		return err
 	}
 
 	out, err := createFile(destPath)
 	if err != nil {
+		c.logger.Error("create file failed", zap.String("dest", destPath), zap.Error(err))
 		return err
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
-	return err
+	n, err := io.Copy(out, resp.Body)
+	if err != nil {
+		c.logger.Warn("write file failed", zap.String("dest", filepath.Base(destPath)), zap.Error(err))
+		return err
+	}
+	c.logger.Debug("download to file completed", zap.String("dest", filepath.Base(destPath)), zap.Int64("bytes", n))
+	return nil
 }
 
 func (c *APIClient) attachHeaders(req *http.Request) {

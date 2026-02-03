@@ -12,6 +12,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"go.uber.org/zap"
 
+	"ym-bot/internal/metrics"
 	"ym-bot/internal/services/music"
 )
 
@@ -25,15 +26,19 @@ type Bot struct {
 	api          *tgbotapi.BotAPI
 	musicService *music.Service
 	logger       *zap.Logger
+	metrics      *metrics.Metrics
 }
 
 // NewBot constructs a bot instance with inline mode enabled.
-func NewBot(token string, musicService *music.Service, logger *zap.Logger) (*Bot, error) {
+func NewBot(token string, musicService *music.Service, logger *zap.Logger, m *metrics.Metrics) (*Bot, error) {
 	if musicService == nil {
 		return nil, fmt.Errorf("music service is nil")
 	}
 	if logger == nil {
 		logger = zap.NewNop()
+	}
+	if m == nil {
+		m = metrics.New()
 	}
 
 	api, err := tgbotapi.NewBotAPI(token)
@@ -45,7 +50,8 @@ func NewBot(token string, musicService *music.Service, logger *zap.Logger) (*Bot
 	return &Bot{
 		api:          api,
 		musicService: musicService,
-		logger:       logger,
+		logger:       logger.With(zap.String("component", "telegram.bot")),
+		metrics:      m,
 	}, nil
 }
 
@@ -53,12 +59,13 @@ func NewBot(token string, musicService *music.Service, logger *zap.Logger) (*Bot
 func (b *Bot) Start(ctx context.Context) error {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 10
-
 	updates := b.api.GetUpdatesChan(u)
+	b.logger.Info("long polling started")
 
 	for {
 		select {
 		case <-ctx.Done():
+			b.logger.Info("shutting down", zap.Error(ctx.Err()))
 			return ctx.Err()
 		case update := <-updates:
 			if update.InlineQuery != nil {
@@ -76,7 +83,15 @@ func (b *Bot) handleInlineQuery(ctx context.Context, q *tgbotapi.InlineQuery) {
 
 	query := strings.TrimSpace(q.Query)
 	if query == "" {
+		b.logger.Debug("inline query skipped: empty query", zap.String("inline_query_id", q.ID))
 		return
+	}
+
+	b.metrics.SearchesTotal.Inc()
+	logFields := []zap.Field{
+		zap.String("query", query),
+		zap.String("inline_query_id", q.ID),
+		zap.Int64("user_id", q.From.ID),
 	}
 
 	offset := 0
@@ -88,24 +103,29 @@ func (b *Bot) handleInlineQuery(ctx context.Context, q *tgbotapi.InlineQuery) {
 
 	tracks, err := b.musicService.Search(ctx, query, searchLimit, offset)
 	if err != nil {
-		b.logger.Warn("search failed", zap.String("query", query), zap.Error(err))
+		b.metrics.SearchesFailed.Inc()
+		b.logger.Warn("search failed", append(logFields, zap.Error(err))...)
 		return
 	}
 
+	b.logger.Debug("search completed", append(logFields, zap.Int("tracks_found", len(tracks)), zap.Int("offset", offset))...)
+
 	results := make([]interface{}, 0, len(tracks))
 	for _, track := range tracks {
-		// Fetch meta + direct url; Telegram will send audio directly from URL.
 		meta, url, err := b.musicService.StreamURL(ctx, track.ID)
 		if err != nil || url == "" {
-			b.logger.Debug("skip track: no direct url", zap.String("trackID", track.ID), zap.Error(err))
+			b.metrics.StreamURLFailed.Inc()
+			b.logger.Debug("skip track: no direct url", zap.String("track_id", track.ID), zap.Error(err))
 			continue
 		}
+		b.metrics.StreamURLRequests.Inc()
 
 		audio := tgbotapi.NewInlineQueryResultAudio(meta.ID, url, meta.Title)
 		audio.Performer = meta.ArtistsString()
-		//	audio.Caption = fmt.Sprintf("%s — %s", meta.Title, meta.ArtistsString())
 		results = append(results, audio)
 	}
+
+	b.metrics.InlineResultsTotal.Add(float64(len(results)))
 
 	ans := tgbotapi.InlineConfig{
 		InlineQueryID: q.ID,
@@ -116,8 +136,11 @@ func (b *Bot) handleInlineQuery(ctx context.Context, q *tgbotapi.InlineQuery) {
 	}
 
 	if _, err := b.api.Request(ans); err != nil {
-		b.logger.Warn("answer inline failed", zap.String("query", query), zap.Error(err))
+		b.metrics.SearchesFailed.Inc()
+		b.logger.Warn("answer inline failed", append(logFields, zap.Error(err))...)
+		return
 	}
+	b.logger.Info("inline query answered", append(logFields, zap.Int("results_count", len(results)))...)
 }
 
 func (b *Bot) handleCallback(ctx context.Context, cb *tgbotapi.CallbackQuery) {
@@ -126,27 +149,32 @@ func (b *Bot) handleCallback(ctx context.Context, cb *tgbotapi.CallbackQuery) {
 	}
 
 	trackID := strings.TrimPrefix(cb.Data, callbackPrefix)
+	logFields := []zap.Field{
+		zap.String("track_id", trackID),
+		zap.String("callback_id", cb.ID),
+		zap.Int64("user_id", cb.From.ID),
+	}
 
 	var chatID int64
 	if cb.Message != nil && cb.Message.Chat != nil {
 		chatID = cb.Message.Chat.ID
 	} else {
-		// Inline keyboard callbacks may omit message; fall back to sender.
 		chatID = cb.From.ID
 	}
 
-	// Immediately acknowledge to avoid Telegram timeout.
 	ack := tgbotapi.NewCallback(cb.ID, "Готовим ваш трек…")
 	if _, err := b.api.Request(ack); err != nil {
-		b.logger.Warn("callback ack failed", zap.Error(err))
+		b.logger.Warn("callback ack failed", append(logFields, zap.Error(err))...)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
+	b.logger.Info("download started", logFields...)
 	meta, path, err := b.musicService.DownloadTrack(ctx, trackID)
 	if err != nil {
-		b.logger.Warn("download failed", zap.String("trackID", trackID), zap.Error(err))
+		b.metrics.DownloadsFailed.Inc()
+		b.logger.Warn("download failed", append(logFields, zap.Error(err))...)
 		b.sendAlert(cb, "Не удалось скачать трек :(")
 		return
 	}
@@ -156,13 +184,21 @@ func (b *Bot) handleCallback(ctx context.Context, cb *tgbotapi.CallbackQuery) {
 	audio.Duration = meta.DurationSeconds
 	audio.Performer = meta.ArtistsString()
 	audio.Title = meta.Title
-	//audio.Caption = fmt.Sprintf("%s — %s", meta.Title, meta.ArtistsString())
 
 	if _, err := b.api.Send(audio); err != nil {
-		b.logger.Warn("send audio failed", zap.String("trackID", trackID), zap.Error(err))
+		b.metrics.DownloadsFailed.Inc()
+		b.logger.Warn("send audio failed", append(logFields, zap.Error(err))...)
 		b.sendAlert(cb, "Не удалось отправить аудио :(")
 		return
 	}
+
+	b.metrics.DownloadsTotal.Inc()
+	b.logger.Info("track sent",
+		append(logFields,
+			zap.String("title", meta.Title),
+			zap.String("artists", meta.ArtistsString()),
+			zap.Int("duration_sec", meta.DurationSeconds),
+		)...)
 }
 
 func (b *Bot) sendAlert(cb *tgbotapi.CallbackQuery, text string) {
