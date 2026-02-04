@@ -27,6 +27,9 @@ type Metrics struct {
 	// StreamURLFailed counts StreamURL failures (e.g. no direct URL).
 	StreamURLFailed prometheus.Counter
 
+	// ChartsRequests counts inline feature usages (trending/new).
+	ChartsRequests *prometheus.CounterVec
+
 	reg *prometheus.Registry
 }
 
@@ -76,6 +79,11 @@ func New() *Metrics {
 				Name:      "stream_url_failed_total",
 				Help:      "Total number of StreamURL failures",
 			}),
+			ChartsRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "inline_features_total",
+				Help:      "Total number of inline feature requests by type",
+			}),
 		}
 		reg.MustRegister(
 			instance.DownloadsTotal,
@@ -85,6 +93,7 @@ func New() *Metrics {
 			instance.InlineResultsTotal,
 			instance.StreamURLRequests,
 			instance.StreamURLFailed,
+			instance.ChartsRequests,
 		)
 	})
 	return instance

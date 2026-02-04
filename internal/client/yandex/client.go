@@ -36,6 +36,10 @@ type Client interface {
 	GetTrack(ctx context.Context, id string) (Track, error)
 	GetDownloadURL(ctx context.Context, id string) (string, error)
 	DownloadToFile(ctx context.Context, downloadURL, destPath string) error
+
+	// Charts and new releases.
+	GetTopChart(ctx context.Context, limit int) ([]Track, error)
+	GetNewReleases(ctx context.Context, limit int) ([]Track, error)
 }
 
 // HTTPClient wraps the stdlib client for easier testing.
@@ -265,6 +269,130 @@ func (c *APIClient) DownloadToFile(ctx context.Context, downloadURL, destPath st
 	}
 	c.logger.Debug("download to file completed", zap.String("dest", filepath.Base(destPath)), zap.Int64("bytes", n))
 	return nil
+}
+
+// GetTopChart returns tracks from the global chart.
+func (c *APIClient) GetTopChart(ctx context.Context, limit int) ([]Track, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	u := fmt.Sprintf("%s/landing3/chart", apiBase)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		c.logger.Error("chart request build failed", zap.Error(err))
+		return nil, err
+	}
+	c.attachHeaders(req)
+
+	c.logger.Info("chart request started")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("chart request failed", zap.Error(err))
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		c.logger.Error("chart request bad status",
+			zap.Int("status", resp.StatusCode),
+			zap.String("body_preview", string(body)))
+		return nil, fmt.Errorf("chart failed: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	var payload chartResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		c.logger.Error("chart response decode failed", zap.Error(err))
+		return nil, fmt.Errorf("decode chart response: %w", err)
+	}
+
+	tracks := make([]Track, 0, len(payload.Result.Chart.Tracks))
+	for i, item := range payload.Result.Chart.Tracks {
+		if i >= limit {
+			break
+		}
+		tracks = append(tracks, mapTrack(item.Track))
+	}
+
+	c.logger.Info("chart request completed", zap.Int("count", len(tracks)))
+	return tracks, nil
+}
+
+// GetNewReleases returns tracks representing new releases.
+func (c *APIClient) GetNewReleases(ctx context.Context, limit int) ([]Track, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	u := fmt.Sprintf("%s/landing3/new-releases", apiBase)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		c.logger.Error("new releases request build failed", zap.Error(err))
+		return nil, err
+	}
+	c.attachHeaders(req)
+
+	c.logger.Info("new releases request started")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("new releases request failed", zap.Error(err))
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		c.logger.Error("new releases bad status",
+			zap.Int("status", resp.StatusCode),
+			zap.String("body_preview", string(body)))
+		return nil, fmt.Errorf("new releases failed: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	var payload newReleasesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		c.logger.Error("new releases decode failed", zap.Error(err))
+		return nil, fmt.Errorf("decode new releases response: %w", err)
+	}
+
+	tracks := make([]Track, 0, len(payload.Result.Entity))
+	for i, e := range payload.Result.Entity {
+		if i >= limit {
+			break
+		}
+
+		artists := make([]string, 0, len(e.Album.Artists))
+		for _, a := range e.Album.Artists {
+			if a.Name != "" {
+				artists = append(artists, a.Name)
+			}
+		}
+
+		cover := ""
+		if e.Album.CoverURI != "" {
+			cover = "https://" + strings.ReplaceAll(e.Album.CoverURI, "%%", "200x200")
+		}
+
+		tracks = append(tracks, Track{
+			ID:              e.Album.ID.String(),
+			Title:           e.Album.Title,
+			Artists:         artists,
+			DurationSeconds: 0,
+			CoverURL:        cover,
+			AlbumTitle:      e.Album.Title,
+		})
+	}
+
+	c.logger.Info("new releases request completed", zap.Int("count", len(tracks)))
+	return tracks, nil
 }
 
 func (c *APIClient) attachHeaders(req *http.Request) {

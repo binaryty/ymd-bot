@@ -59,8 +59,8 @@ type downloadInfoResponse struct {
 }
 
 type downloadInfoDTO struct {
-	URL    string `json:"downloadInfoUrl"`
-	Codec  string `json:"codec"`
+	URL     string `json:"downloadInfoUrl"`
+	Codec   string `json:"codec"`
 	Bitrate int    `json:"bitrateInKbps"`
 }
 
@@ -79,4 +79,45 @@ func createFile(path string) (*os.File, error) {
 	}
 	return os.Create(path) //nolint:gosec // destination controlled internally
 }
+
+// --- Chart and new releases DTOs ---
+
+// chartResponse represents response shape for /landing3/chart endpoints.
+type chartResponse struct {
+	Result chartResult `json:"result"`
+}
+
+type chartResult struct {
+	Chart chartBlock `json:"chart"`
+}
+
+type chartBlock struct {
+	Tracks []chartTrackItem `json:"tracks"`
+}
+
+type chartTrackItem struct {
+	Track trackDTO `json:"track"`
+}
+
+// newReleasesResponse represents response shape for /landing3/new-releases.
+type newReleasesResponse struct {
+	Result newReleasesResult `json:"result"`
+}
+
+type newReleasesResult struct {
+	Entity []newReleaseEntity `json:"entity"`
+}
+
+// newReleaseEntity describes a single new release item (album-centric).
+type newReleaseEntity struct {
+	Album newReleaseAlbum `json:"album"`
+}
+
+type newReleaseAlbum struct {
+	ID       json.Number  `json:"id"`
+	Title    string       `json:"title"`
+	Artists  []artistDTO  `json:"artists"`
+	CoverURI string       `json:"coverUri"`
+}
+
 
