@@ -83,7 +83,7 @@ func New() *Metrics {
 				Namespace: namespace,
 				Name:      "inline_features_total",
 				Help:      "Total number of inline feature requests by type",
-			}),
+			}, []string{"feature_type"}),
 		}
 		reg.MustRegister(
 			instance.DownloadsTotal,
