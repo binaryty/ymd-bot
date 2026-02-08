@@ -12,6 +12,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"go.uber.org/zap"
 
+	yandex "ym-bot/internal/client/yandex"
 	"ym-bot/internal/metrics"
 	"ym-bot/internal/services/music"
 )
