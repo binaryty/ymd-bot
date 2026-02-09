@@ -421,15 +421,12 @@ func (c *APIClient) GetGenreTracks(ctx context.Context, genre string, limit int)
 		return nil, fmt.Errorf("unknown genre: %s", genre)
 	}
 
-	// Use search with genre filter - search for popular tracks in genre
-	// Using empty query with genre filter to get popular tracks
+	// Use search with genre as query text to get popular tracks in genre
 	u, _ := url.Parse(apiBase + "/search")
 	q := u.Query()
-	q.Set("text", "")
+	q.Set("text", genreID)
 	q.Set("type", "track")
 	q.Set("page", "0")
-	q.Set("genre", genreID)
-	q.Set("sortBy", "popularity")
 	q.Set("nococrrect", "true")
 	u.RawQuery = q.Encode()
 
