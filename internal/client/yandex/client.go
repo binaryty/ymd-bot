@@ -398,80 +398,80 @@ func (c *APIClient) GetNewReleases(ctx context.Context, limit int) ([]Track, err
 	return tracks, nil
 }
 
-// Genre mapping for Yandex Music landing endpoints
-var genreEndpoints = map[string]string{
-	"rock":       "genre-rock",
-	"trance":     "genre-trance",
-	"pop":        "genre-pop",
-	"hip-hop":    "genre-hip-hop",
-	"jazz":       "genre-jazz",
-	"classical":  "genre-classical",
-	"electronic": "genre-electronic",
-	"metal":      "genre-metal",
+// Genre IDs for Yandex Music search
+var genreIDs = map[string]string{
+	"rock":       "rock",
+	"trance":     "trance",
+	"pop":        "pop",
+	"hip-hop":    "hip-hop",
+	"jazz":       "jazz",
+	"classical":  "classical",
+	"electronic": "electronic",
+	"metal":      "metal",
 }
 
-// GetGenreTracks returns tracks from genre-specific playlist
+// GetGenreTracks returns tracks by searching with genre filter
 func (c *APIClient) GetGenreTracks(ctx context.Context, genre string, limit int) ([]Track, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	endpoint, ok := genreEndpoints[genre]
+	genreID, ok := genreIDs[genre]
 	if !ok {
 		return nil, fmt.Errorf("unknown genre: %s", genre)
 	}
 
-	u := fmt.Sprintf("%s/landing3/%s", apiBase, endpoint)
+	// Use search with genre filter - search for popular tracks in genre
+	// Using empty query with genre filter to get popular tracks
+	u, _ := url.Parse(apiBase + "/search")
+	q := u.Query()
+	q.Set("text", "")
+	q.Set("type", "track")
+	q.Set("page", "0")
+	q.Set("genre", genreID)
+	q.Set("sortBy", "popularity")
+	q.Set("nococrrect", "true")
+	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		c.logger.Error("genre request build failed", zap.String("genre", genre), zap.Error(err))
+		c.logger.Error("genre search request build failed", zap.String("genre", genre), zap.Error(err))
 		return nil, err
 	}
 	c.attachHeaders(req)
 
-	c.logger.Info("genre request started", zap.String("genre", genre))
+	c.logger.Info("genre search request started", zap.String("genre", genre))
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.logger.Error("genre request failed", zap.String("genre", genre), zap.Error(err))
+		c.logger.Error("genre search request failed", zap.String("genre", genre), zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		c.logger.Error("genre request bad status",
+		c.logger.Error("genre search request bad status",
 			zap.String("genre", genre),
 			zap.Int("status", resp.StatusCode),
 			zap.String("body_preview", string(body)))
-		return nil, fmt.Errorf("genre failed: status=%d body=%s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("genre search failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
-	var payload genreResponse
+	var payload searchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		c.logger.Error("genre response decode failed", zap.String("genre", genre), zap.Error(err))
-		return nil, fmt.Errorf("decode genre response: %w", err)
+		c.logger.Error("genre search response decode failed", zap.String("genre", genre), zap.Error(err))
+		return nil, fmt.Errorf("decode genre search response: %w", err)
 	}
 
-	tracks := make([]Track, 0)
-	for _, block := range payload.Result.Blocks {
-		for _, entity := range block.Entities {
-			if entity.Data.Track.ID != "" {
-				tracks = append(tracks, mapTrack(entity.Data.Track))
-				if len(tracks) >= limit {
-					break
-				}
-			}
-		}
-		if len(tracks) >= limit {
+	tracks := make([]Track, 0, len(payload.Result.Tracks.Results))
+	for i, t := range payload.Result.Tracks.Results {
+		if i >= limit {
 			break
 		}
+		tracks = append(tracks, mapTrack(t))
 	}
 
-	c.logger.Info("genre request completed", zap.String("genre", genre), zap.Int("count", len(tracks)))
+	c.logger.Info("genre search request completed", zap.String("genre", genre), zap.Int("count", len(tracks)))
 	return tracks, nil
 }
 

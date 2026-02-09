@@ -119,26 +119,3 @@ type newReleaseAlbum struct {
 	Artists  []artistDTO `json:"artists"`
 	CoverURI string      `json:"coverUri"`
 }
-
-// --- Genre DTOs ---
-
-// genreResponse represents response shape for /landing3/genre-* endpoints.
-type genreResponse struct {
-	Result genreResult `json:"result"`
-}
-
-type genreResult struct {
-	Blocks []genreBlock `json:"blocks"`
-}
-
-type genreBlock struct {
-	Entities []genreEntity `json:"entities"`
-}
-
-type genreEntity struct {
-	Data genreEntityData `json:"data"`
-}
-
-type genreEntityData struct {
-	Track trackDTO `json:"track"`
-}
