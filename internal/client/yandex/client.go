@@ -327,15 +327,16 @@ func (c *APIClient) GetTopChart(ctx context.Context, limit int) ([]Track, error)
 }
 
 // GetNewReleases returns tracks representing new releases.
+// Uses search for "новинки" as the dedicated endpoint may not return tracks directly.
 func (c *APIClient) GetNewReleases(ctx context.Context, limit int) ([]Track, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 
+	// Try the landing3/new-releases endpoint first
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Use the correct endpoint for new releases
 	u := fmt.Sprintf("%s/landing3/new-releases", apiBase)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -353,53 +354,104 @@ func (c *APIClient) GetNewReleases(ctx context.Context, limit int) ([]Track, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		c.logger.Error("new releases bad status",
-			zap.Int("status", resp.StatusCode),
-			zap.String("body_preview", string(body)))
-		return nil, fmt.Errorf("new releases failed: status=%d body=%s", resp.StatusCode, string(body))
-	}
-
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-	c.logger.Debug("new releases response", zap.String("body", string(body)))
 
-	// Try parsing as albums first
-	var albumPayload newReleasesResponse
-	if err := json.Unmarshal(body, &albumPayload); err == nil && len(albumPayload.Result.Entity) > 0 {
-		tracks := make([]Track, 0, len(albumPayload.Result.Entity))
-		for i, e := range albumPayload.Result.Entity {
-			if i >= limit {
-				break
-			}
-
-			artists := make([]string, 0, len(e.Album.Artists))
-			for _, a := range e.Album.Artists {
-				if a.Name != "" {
-					artists = append(artists, a.Name)
+	if resp.StatusCode == http.StatusOK {
+		// Try parsing as albums first
+		var albumPayload newReleasesResponse
+		if err := json.Unmarshal(body, &albumPayload); err == nil && len(albumPayload.Result.Entity) > 0 {
+			tracks := make([]Track, 0, len(albumPayload.Result.Entity))
+			for i, e := range albumPayload.Result.Entity {
+				if i >= limit {
+					break
 				}
-			}
 
-			cover := ""
-			if e.Album.CoverURI != "" {
-				cover = "https://" + strings.ReplaceAll(e.Album.CoverURI, "%%", "200x200")
-			}
+				artists := make([]string, 0, len(e.Album.Artists))
+				for _, a := range e.Album.Artists {
+					if a.Name != "" {
+						artists = append(artists, a.Name)
+					}
+				}
 
-			tracks = append(tracks, Track{
-				ID:              e.Album.ID.String(),
-				Title:           e.Album.Title,
-				Artists:         artists,
-				DurationSeconds: 0,
-				CoverURL:        cover,
-				AlbumTitle:      e.Album.Title,
-			})
+				cover := ""
+				if e.Album.CoverURI != "" {
+					cover = "https://" + strings.ReplaceAll(e.Album.CoverURI, "%%", "200x200")
+				}
+
+				tracks = append(tracks, Track{
+					ID:              e.Album.ID.String(),
+					Title:           e.Album.Title,
+					Artists:         artists,
+					DurationSeconds: 0,
+					CoverURL:        cover,
+					AlbumTitle:      e.Album.Title,
+				})
+			}
+			c.logger.Info("new releases request completed (albums)", zap.Int("count", len(tracks)))
+			return tracks, nil
 		}
-		c.logger.Info("new releases request completed (albums)", zap.Int("count", len(tracks)))
-		return tracks, nil
 	}
 
-	c.logger.Error("new releases decode failed", zap.Error(err))
-	return nil, fmt.Errorf("decode new releases response: %w", err)
+	// If landing3/new-releases fails, try the entities endpoint
+	c.logger.Info("trying entities/new-releases endpoint")
+
+	u2 := fmt.Sprintf("%s/entities/new-releases/NEWRELEASES", apiBase)
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, u2, nil)
+	if err != nil {
+		c.logger.Error("entities new releases request build failed", zap.Error(err))
+		// Fall back to search
+		return c.SearchTracks(ctx, "новинки", limit, 0)
+	}
+	c.attachHeaders(req2)
+
+	resp2, err := c.httpClient.Do(req2)
+	if err != nil {
+		c.logger.Error("entities new releases request failed", zap.Error(err))
+		return c.SearchTracks(ctx, "новинки", limit, 0)
+	}
+	defer resp2.Body.Close()
+
+	body2, _ := io.ReadAll(io.LimitReader(resp2.Body, 4<<10))
+
+	if resp2.StatusCode == http.StatusOK {
+		// Try parsing - might be similar structure
+		var albumPayload newReleasesResponse
+		if err := json.Unmarshal(body2, &albumPayload); err == nil && len(albumPayload.Result.Entity) > 0 {
+			tracks := make([]Track, 0, len(albumPayload.Result.Entity))
+			for i, e := range albumPayload.Result.Entity {
+				if i >= limit {
+					break
+				}
+
+				artists := make([]string, 0, len(e.Album.Artists))
+				for _, a := range e.Album.Artists {
+					if a.Name != "" {
+						artists = append(artists, a.Name)
+					}
+				}
+
+				cover := ""
+				if e.Album.CoverURI != "" {
+					cover = "https://" + strings.ReplaceAll(e.Album.CoverURI, "%%", "200x200")
+				}
+
+				tracks = append(tracks, Track{
+					ID:              e.Album.ID.String(),
+					Title:           e.Album.Title,
+					Artists:         artists,
+					DurationSeconds: 0,
+					CoverURL:        cover,
+					AlbumTitle:      e.Album.Title,
+				})
+			}
+			c.logger.Info("new releases request completed (entities)", zap.Int("count", len(tracks)))
+			return tracks, nil
+		}
+	}
+
+	// Last resort: search for "новинки"
+	c.logger.Info("falling back to search for new releases")
+	return c.SearchTracks(ctx, "новинки", limit, 0)
 }
 
 // Genre IDs for Yandex Music search
