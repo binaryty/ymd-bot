@@ -25,16 +25,16 @@ type trackResponse struct {
 }
 
 type trackDTO struct {
-	ID         json.Number   `json:"id"`
-	Title      string        `json:"title"`
-	DurationMs int           `json:"durationMs"`
-	Artists    []artistDTO   `json:"artists"`
-	Albums     albumListDTO  `json:"albums"`
-	CoverURI   string        `json:"coverUri"`
-	StorageDir string        `json:"storageDir"`
-	RealID     string        `json:"realId"`
-	TrackShare string        `json:"trackShareUrl"`
-	Type       string        `json:"type"`
+	ID         json.Number  `json:"id"`
+	Title      string       `json:"title"`
+	DurationMs int          `json:"durationMs"`
+	Artists    []artistDTO  `json:"artists"`
+	Albums     albumListDTO `json:"albums"`
+	CoverURI   string       `json:"coverUri"`
+	StorageDir string       `json:"storageDir"`
+	RealID     string       `json:"realId"`
+	TrackShare string       `json:"trackShareUrl"`
+	Type       string       `json:"type"`
 }
 
 type artistDTO struct {
@@ -114,10 +114,31 @@ type newReleaseEntity struct {
 }
 
 type newReleaseAlbum struct {
-	ID       json.Number  `json:"id"`
-	Title    string       `json:"title"`
-	Artists  []artistDTO  `json:"artists"`
-	CoverURI string       `json:"coverUri"`
+	ID       json.Number `json:"id"`
+	Title    string      `json:"title"`
+	Artists  []artistDTO `json:"artists"`
+	CoverURI string      `json:"coverUri"`
 }
 
+// --- Genre DTOs ---
 
+// genreResponse represents response shape for /landing3/genre-* endpoints.
+type genreResponse struct {
+	Result genreResult `json:"result"`
+}
+
+type genreResult struct {
+	Blocks []genreBlock `json:"blocks"`
+}
+
+type genreBlock struct {
+	Entities []genreEntity `json:"entities"`
+}
+
+type genreEntity struct {
+	Data genreEntityData `json:"data"`
+}
+
+type genreEntityData struct {
+	Track trackDTO `json:"track"`
+}

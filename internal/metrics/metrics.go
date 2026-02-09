@@ -29,6 +29,8 @@ type Metrics struct {
 
 	// ChartsRequests counts inline feature usages (trending/new).
 	ChartsRequests *prometheus.CounterVec
+	// GenreRequests counts inline genre playlist requests by genre.
+	GenreRequests *prometheus.CounterVec
 
 	reg *prometheus.Registry
 }
@@ -84,6 +86,11 @@ func New() *Metrics {
 				Name:      "inline_features_total",
 				Help:      "Total number of inline feature requests by type",
 			}, []string{"feature_type"}),
+			GenreRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "genre_requests_total",
+				Help:      "Total number of genre playlist requests",
+			}, []string{"genre"}),
 		}
 		reg.MustRegister(
 			instance.DownloadsTotal,
@@ -94,6 +101,7 @@ func New() *Metrics {
 			instance.StreamURLRequests,
 			instance.StreamURLFailed,
 			instance.ChartsRequests,
+			instance.GenreRequests,
 		)
 	})
 	return instance

@@ -88,11 +88,38 @@ func (b *Bot) handleInlineQuery(ctx context.Context, q *tgbotapi.InlineQuery) {
 		return
 	}
 
-	normalized := strings.TrimLeft(strings.ToLower(query), "/")
+	normalized := strings.TrimSpace(strings.TrimLeft(strings.ToLower(query), "/"))
 
-	// Handle special chart commands: trending and new.
-	if normalized == "trending" || normalized == "new" {
+	// Handle special commands: тренды, new, and genres.
+	if normalized == "тренды" || normalized == "new" {
 		b.handleChartsInlineQuery(ctx, q, normalized)
+		return
+	}
+
+	// Handle genre commands
+	genres := map[string]bool{
+		"rock": true, "рок": true,
+		"trance": true, "транс": true,
+		"pop": true, "поп": true,
+		"hip-hop": true, "хип-хоп": true,
+		"jazz": true, "джаз": true,
+		"classical": true, "классика": true,
+		"electronic": true, "электроника": true,
+		"metal": true, "метал": true,
+	}
+	if genres[normalized] {
+		// Map Russian names to English for API
+		genreMap := map[string]string{
+			"рок": "rock", "rock": "rock",
+			"транс": "trance", "trance": "trance",
+			"поп": "pop", "pop": "pop",
+			"хип-хоп": "hip-hop", "hip-hop": "hip-hop",
+			"джаз": "jazz", "jazz": "jazz",
+			"классика": "classical", "classical": "classical",
+			"электроника": "electronic", "electronic": "electronic",
+			"метал": "metal", "metal": "metal",
+		}
+		b.handleGenreInlineQuery(ctx, q, genreMap[normalized])
 		return
 	}
 
@@ -168,8 +195,8 @@ func (b *Bot) handleChartsInlineQuery(ctx context.Context, q *tgbotapi.InlineQue
 	)
 
 	switch featureType {
-	case "trending":
-		b.logger.Info("inline charts request: trending", logFields...)
+	case "тренды":
+		b.logger.Info("inline charts request: тренды", logFields...)
 		t, svcErr := b.musicService.TopChart(ctx, chartsLimit)
 		err = svcErr
 		tracks = wrapTracks(t)
@@ -225,6 +252,60 @@ func (b *Bot) handleChartsInlineQuery(ctx context.Context, q *tgbotapi.InlineQue
 	}
 
 	b.logger.Info("charts inline query answered", append(logFields, zap.Int("results_count", len(results)))...)
+}
+
+// handleGenreInlineQuery serves inline queries for genre playlists (/rock, /pop, etc.)
+func (b *Bot) handleGenreInlineQuery(ctx context.Context, q *tgbotapi.InlineQuery, genre string) {
+	logFields := []zap.Field{
+		zap.String("genre", genre),
+		zap.String("inline_query_id", q.ID),
+		zap.Int64("user_id", q.From.ID),
+	}
+
+	const genreLimit = 10
+
+	b.logger.Info("inline genre request", logFields...)
+	tracks, err := b.musicService.GetGenreTracks(ctx, genre, genreLimit)
+	if err != nil {
+		b.logger.Error("genre request failed", append(logFields, zap.Error(err))...)
+		return
+	}
+
+	b.metrics.GenreRequests.WithLabelValues(genre).Inc()
+
+	results := make([]interface{}, 0, len(tracks))
+	for _, t := range tracks {
+		meta, url, err := b.musicService.StreamURL(ctx, t.ID)
+		if err != nil || url == "" {
+			b.metrics.StreamURLFailed.Inc()
+			b.logger.Debug("skip genre track: no direct url", append(logFields, zap.String("track_id", t.ID), zap.Error(err))...)
+			continue
+		}
+		b.metrics.StreamURLRequests.Inc()
+
+		audio := tgbotapi.NewInlineQueryResultAudio(meta.ID, url, meta.Title)
+		audio.Performer = meta.ArtistsString()
+		results = append(results, audio)
+	}
+
+	if len(results) == 0 {
+		b.logger.Info("genre inline query answered with empty results", logFields...)
+		return
+	}
+
+	ans := tgbotapi.InlineConfig{
+		InlineQueryID: q.ID,
+		IsPersonal:    true,
+		CacheTime:     60,
+		Results:       results,
+	}
+
+	if _, err := b.api.Request(ans); err != nil {
+		b.logger.Warn("answer genre inline failed", append(logFields, zap.Error(err))...)
+		return
+	}
+
+	b.logger.Info("genre inline query answered", append(logFields, zap.Int("results_count", len(results)))...)
 }
 
 // musicTrackWrapper is a tiny helper to adapt tracks without importing yandex package here.
