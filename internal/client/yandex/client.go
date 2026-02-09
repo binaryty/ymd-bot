@@ -335,6 +335,7 @@ func (c *APIClient) GetNewReleases(ctx context.Context, limit int) ([]Track, err
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	// Use the correct endpoint for new releases
 	u := fmt.Sprintf("%s/landing3/new-releases", apiBase)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -360,42 +361,45 @@ func (c *APIClient) GetNewReleases(ctx context.Context, limit int) ([]Track, err
 		return nil, fmt.Errorf("new releases failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
-	var payload newReleasesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		c.logger.Error("new releases decode failed", zap.Error(err))
-		return nil, fmt.Errorf("decode new releases response: %w", err)
-	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	c.logger.Debug("new releases response", zap.String("body", string(body)))
 
-	tracks := make([]Track, 0, len(payload.Result.Entity))
-	for i, e := range payload.Result.Entity {
-		if i >= limit {
-			break
-		}
-
-		artists := make([]string, 0, len(e.Album.Artists))
-		for _, a := range e.Album.Artists {
-			if a.Name != "" {
-				artists = append(artists, a.Name)
+	// Try parsing as albums first
+	var albumPayload newReleasesResponse
+	if err := json.Unmarshal(body, &albumPayload); err == nil && len(albumPayload.Result.Entity) > 0 {
+		tracks := make([]Track, 0, len(albumPayload.Result.Entity))
+		for i, e := range albumPayload.Result.Entity {
+			if i >= limit {
+				break
 			}
-		}
 
-		cover := ""
-		if e.Album.CoverURI != "" {
-			cover = "https://" + strings.ReplaceAll(e.Album.CoverURI, "%%", "200x200")
-		}
+			artists := make([]string, 0, len(e.Album.Artists))
+			for _, a := range e.Album.Artists {
+				if a.Name != "" {
+					artists = append(artists, a.Name)
+				}
+			}
 
-		tracks = append(tracks, Track{
-			ID:              e.Album.ID.String(),
-			Title:           e.Album.Title,
-			Artists:         artists,
-			DurationSeconds: 0,
-			CoverURL:        cover,
-			AlbumTitle:      e.Album.Title,
-		})
+			cover := ""
+			if e.Album.CoverURI != "" {
+				cover = "https://" + strings.ReplaceAll(e.Album.CoverURI, "%%", "200x200")
+			}
+
+			tracks = append(tracks, Track{
+				ID:              e.Album.ID.String(),
+				Title:           e.Album.Title,
+				Artists:         artists,
+				DurationSeconds: 0,
+				CoverURL:        cover,
+				AlbumTitle:      e.Album.Title,
+			})
+		}
+		c.logger.Info("new releases request completed (albums)", zap.Int("count", len(tracks)))
+		return tracks, nil
 	}
 
-	c.logger.Info("new releases request completed", zap.Int("count", len(tracks)))
-	return tracks, nil
+	c.logger.Error("new releases decode failed", zap.Error(err))
+	return nil, fmt.Errorf("decode new releases response: %w", err)
 }
 
 // Genre IDs for Yandex Music search
