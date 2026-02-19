@@ -32,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("logger: %v", err)
 	}
-	defer logger.Sync() // best-effort flush
+	defer func() { _ = logger.Sync() }() // best-effort flush
 
 	if cfg.TelegramToken == "" {
 		logger.Fatal("TELEGRAM_TOKEN is required")
@@ -70,4 +70,3 @@ func main() {
 		logger.Fatal("bot stopped with error", zap.Error(err))
 	}
 }
-

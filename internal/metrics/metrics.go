@@ -27,13 +27,6 @@ type Metrics struct {
 	// StreamURLFailed counts StreamURL failures (e.g. no direct URL).
 	StreamURLFailed prometheus.Counter
 
-	// ChartsRequests counts inline feature usages (trending/new).
-	ChartsRequests *prometheus.CounterVec
-	// GenreRequests counts inline genre playlist requests by genre.
-	GenreRequests *prometheus.CounterVec
-	// PlaylistRequests counts inline playlist requests (without token).
-	PlaylistRequests *prometheus.CounterVec
-
 	reg *prometheus.Registry
 }
 
@@ -83,21 +76,6 @@ func New() *Metrics {
 				Name:      "stream_url_failed_total",
 				Help:      "Total number of StreamURL failures",
 			}),
-			ChartsRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-				Namespace: namespace,
-				Name:      "inline_features_total",
-				Help:      "Total number of inline feature requests by type",
-			}, []string{"feature_type"}),
-			GenreRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-				Namespace: namespace,
-				Name:      "genre_requests_total",
-				Help:      "Total number of genre playlist requests",
-			}, []string{"genre"}),
-			PlaylistRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-				Namespace: namespace,
-				Name:      "playlist_requests_total",
-				Help:      "Total number of inline playlist requests",
-			}, []string{"playlist"}),
 		}
 		reg.MustRegister(
 			instance.DownloadsTotal,
@@ -107,9 +85,6 @@ func New() *Metrics {
 			instance.InlineResultsTotal,
 			instance.StreamURLRequests,
 			instance.StreamURLFailed,
-			instance.ChartsRequests,
-			instance.GenreRequests,
-			instance.PlaylistRequests,
 		)
 	})
 	return instance
