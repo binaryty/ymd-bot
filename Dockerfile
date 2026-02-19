@@ -10,8 +10,6 @@ RUN apk add --no-cache ca-certificates wget
 WORKDIR /app
 COPY --from=builder /bin/ym-bot /app/ym-bot
 COPY env.example /app/.env.example
-ENV TELEGRAM_TOKEN="" \
-    YANDEX_TOKEN="" \
-    LOG_LEVEL=info
+ENV LOG_LEVEL=info
 ENTRYPOINT ["/app/ym-bot"]
 
