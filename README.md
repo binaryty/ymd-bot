@@ -20,6 +20,9 @@
 - `internal/client/yandex` — поиск/мета/получение download URL/скачивание.
 - `internal/services/music` — бизнес-логика.
 - `internal/transport/telegram` — inline обработка и отправка аудио.
+- `internal/metrics` — Prometheus метрики.
+
+> Подробная документация по архитектуре: `KODA.md` (генерируется автоматически, добавлен в `.gitignore`).
 
 ## Быстрый старт (локально)
 ```bash
@@ -54,7 +57,12 @@ docker run --rm --env-file .env ym-bot
 ## Очистка временных файлов
 Скачивание идёт во временную директорию `os.MkdirTemp("", "ym-bot-*")`, после отправки файлы удаляются.
 
+## Метрики (Prometheus)
+- Метрики доступны на `/metrics` (порт `9090` по умолчанию).
+- Поддерживаемые метрики: `ym_bot_searches_total`, `ym_bot_downloads_total`, `ym_bot_stream_url_requests_total` и др.
+- Grafana дашборд доступен при запуске через `docker-compose` (порт `3000`).
+
 ## Ограничения и идеи
 - Inline аудио (Telegram) не поддерживает показ обложки в плеере — thumb виден только в списке.
-- Возможные улучшения: кэш поиска, выбор битрейта, плейлисты/альбомы, прогрев downloadInfoUrl.
+- Возможные улучшения: кэширование результатов поиска, выбор битрейта, прогрев `downloadInfoUrl`.
 

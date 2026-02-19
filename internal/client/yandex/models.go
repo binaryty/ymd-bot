@@ -25,16 +25,16 @@ type trackResponse struct {
 }
 
 type trackDTO struct {
-	ID         json.Number   `json:"id"`
-	Title      string        `json:"title"`
-	DurationMs int           `json:"durationMs"`
-	Artists    []artistDTO   `json:"artists"`
-	Albums     albumListDTO  `json:"albums"`
-	CoverURI   string        `json:"coverUri"`
-	StorageDir string        `json:"storageDir"`
-	RealID     string        `json:"realId"`
-	TrackShare string        `json:"trackShareUrl"`
-	Type       string        `json:"type"`
+	ID         json.Number  `json:"id"`
+	Title      string       `json:"title"`
+	DurationMs int          `json:"durationMs"`
+	Artists    []artistDTO  `json:"artists"`
+	Albums     albumListDTO `json:"albums"`
+	CoverURI   string       `json:"coverUri"`
+	StorageDir string       `json:"storageDir"`
+	RealID     string       `json:"realId"`
+	TrackShare string       `json:"trackShareUrl"`
+	Type       string       `json:"type"`
 }
 
 type artistDTO struct {
@@ -59,8 +59,8 @@ type downloadInfoResponse struct {
 }
 
 type downloadInfoDTO struct {
-	URL    string `json:"downloadInfoUrl"`
-	Codec  string `json:"codec"`
+	URL     string `json:"downloadInfoUrl"`
+	Codec   string `json:"codec"`
 	Bitrate int    `json:"bitrateInKbps"`
 }
 
@@ -79,4 +79,3 @@ func createFile(path string) (*os.File, error) {
 	}
 	return os.Create(path) //nolint:gosec // destination controlled internally
 }
-
