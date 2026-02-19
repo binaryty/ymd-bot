@@ -44,6 +44,7 @@ logs/
 tmp/
 temp/
 *.tmp
+KODA.md
 
 # Docker
 .dockerignore
