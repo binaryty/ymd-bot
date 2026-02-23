@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -115,12 +116,12 @@ func (c *APIClient) SearchTracks(ctx context.Context, query string, limit, offse
 	}
 
 	tracks := make([]Track, 0, len(payload.Result.Tracks.Results))
-	for i, t := range payload.Result.Tracks.Results {
-		if i >= limit {
-			break
-		}
+	for _, t := range payload.Result.Tracks.Results {
 		tracks = append(tracks, mapTrack(t))
 	}
+
+	// Filter and rank tracks by relevance
+	tracks = filterAndRankTracks(tracks, query)
 
 	// Apply pagination within the page: skip results before offset % limit
 	startIdx := offset % limit
@@ -132,6 +133,65 @@ func (c *APIClient) SearchTracks(ctx context.Context, query string, limit, offse
 
 	c.logger.Debug("search response", zap.String("query", query), zap.Int("count", len(tracks)), zap.Int("offset", offset))
 	return tracks, nil
+}
+
+// filterAndRankTracks filters tracks by relevance and sorts by match quality.
+// Keeps only tracks where all query words appear in title or artists.
+func filterAndRankTracks(tracks []Track, query string) []Track {
+	queryWords := strings.Fields(strings.ToLower(query))
+	if len(queryWords) == 0 {
+		return tracks
+	}
+
+	type scoredTrack struct {
+		track Track
+		score int
+	}
+	scored := make([]scoredTrack, 0, len(tracks))
+
+	for _, t := range tracks {
+		text := strings.ToLower(t.Title + " " + strings.Join(t.Artists, " "))
+
+		// Check if all query words are present
+		allPresent := true
+		matchCount := 0
+		for _, word := range queryWords {
+			if strings.Contains(text, word) {
+				matchCount++
+			} else {
+				allPresent = false
+			}
+		}
+
+		// Skip tracks that don't contain all words
+		if !allPresent {
+			continue
+		}
+
+		// Score: higher is better
+		// Exact phrase match gets highest score
+		score := matchCount * 10
+		if strings.Contains(text, strings.ToLower(query)) {
+			score += 100 // Bonus for exact phrase match
+		}
+		// Bonus for title starting with query
+		if strings.HasPrefix(strings.ToLower(t.Title), strings.ToLower(queryWords[0])) {
+			score += 50
+		}
+
+		scored = append(scored, scoredTrack{track: t, score: score})
+	}
+
+	// Sort by score descending
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	result := make([]Track, len(scored))
+	for i, s := range scored {
+		result[i] = s.track
+	}
+	return result
 }
 
 // GetTrack fetches detailed track metadata by id.
