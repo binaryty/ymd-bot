@@ -127,12 +127,17 @@ func (b *Bot) handleInlineQuery(ctx context.Context, q *tgbotapi.InlineQuery) {
 
 	b.metrics.InlineResultsTotal.Add(float64(len(results)))
 
+	nextOffset := ""
+	if len(results) > 0 {
+		nextOffset = strconv.Itoa(offset + len(results))
+	}
+
 	ans := tgbotapi.InlineConfig{
 		InlineQueryID: q.ID,
 		IsPersonal:    true,
 		CacheTime:     0,
 		Results:       results,
-		NextOffset:    strconv.Itoa(offset + len(results)),
+		NextOffset:    nextOffset,
 	}
 
 	if _, err := b.api.Request(ans); err != nil {
