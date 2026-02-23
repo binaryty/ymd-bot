@@ -121,7 +121,16 @@ func (c *APIClient) SearchTracks(ctx context.Context, query string, limit, offse
 		}
 		tracks = append(tracks, mapTrack(t))
 	}
-	c.logger.Debug("search response", zap.String("query", query), zap.Int("count", len(tracks)))
+
+	// Apply pagination within the page: skip results before offset % limit
+	startIdx := offset % limit
+	if startIdx >= len(tracks) {
+		tracks = nil
+	} else {
+		tracks = tracks[startIdx:]
+	}
+
+	c.logger.Debug("search response", zap.String("query", query), zap.Int("count", len(tracks)), zap.Int("offset", offset))
 	return tracks, nil
 }
 
